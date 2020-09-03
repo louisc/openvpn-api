@@ -119,7 +119,7 @@ class VPN:
         self._socket_send(cmd + "\n")
         resp = self._socket_recv()
         if cmd.strip() not in ("load-stats", "signal SIGTERM"):
-            while not (resp.strip().endswith("END") or resp.strip().startswith("SUCCESS:")):
+            while not (resp.strip().endswith("END") or resp.strip().startswith("SUCCESS:") or resp.strip().startswith("ERROR:")):
                 resp += self._socket_recv()
         logger.debug("Cmd response: %r", resp)
         return resp
@@ -192,3 +192,12 @@ class VPN:
         """
         raw = self.send_command("status 1")
         return openvpn_status.parse_status(raw)
+
+    def kill_client(self, client) -> Optional[str]:
+        """Kill the named client's connection.
+        """
+        raw = self.send_command(f"kill {client}")
+        if raw.strip().startswith("SUCCESS:") or raw.strip().startswith("ERROR:"):
+            return raw
+        else:
+            return None
