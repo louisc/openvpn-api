@@ -70,6 +70,7 @@ class VPN:
             assert resp.startswith(">INFO"), "Did not get expected response from interface when opening socket."
             return True
         except (socket.timeout, socket.error) as e:
+            self._socket = None
             raise errors.ConnectError(str(e)) from None
 
     def disconnect(self, _quit=True) -> None:
