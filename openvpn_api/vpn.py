@@ -2,6 +2,8 @@ import contextlib
 import logging
 import re
 import socket
+import select
+import time
 from enum import Enum
 from typing import Optional, Generator
 
@@ -67,9 +69,15 @@ class VPN:
                 raise ValueError("Invalid connection type")
 
             resp = self._socket_recv()
-            assert resp.startswith(">INFO"), "Did not get expected response from interface when opening socket."
+
+            # LC Do some clean up here else we get hung up trying to connect next time
+            if ( not resp.startswith(">INFO") ):
+                self._socket.close()
+                self._socket = None
+                raise errors.ConnectError("Did not get expected response from interface when opening socket.") from None
             return True
         except (socket.timeout, socket.error) as e:
+            print("connect except")
             self._socket = None
             raise errors.ConnectError(str(e)) from None
 
@@ -104,6 +112,7 @@ class VPN:
         """
         if self._socket is None:
             raise errors.NotConnectedError("You must be connected to the management interface to issue commands.")
+        self._socket.settimeout(5)
         self._socket.send(bytes(data, "utf-8"))
 
     def _socket_recv(self) -> str:
@@ -111,12 +120,29 @@ class VPN:
         """
         if self._socket is None:
             raise errors.NotConnectedError("You must be connected to the management interface to issue commands.")
+        self._socket.settimeout(5)
         return self._socket.recv(4096).decode("utf-8")
+
+    def empty_socket(self):
+        """Keep getting garbage logging, remove the data present on the socket after its opened"""
+        logger.debug("Clearing Socket Before RX")
+        if self._socket is None:
+            raise errors.NotConnectedError("You must be connected to the management interface to issue commands.")
+        in_sockets = [self._socket]
+        timeout = time.time() + 15
+        while not time.time() > timeout:
+            inputready, o, e = select.select(in_sockets,[],[], 0.1)
+            if len(inputready)==0: break
+            for s in inputready: s.recv(1)
+        # If we have timed out, assume Socket dead, Set to None to raise Exception
+        if time.time() > timeout:
+            self._socket = None
 
     def send_command(self, cmd) -> str:
         """Send command to management interface and fetch response.
         """
         logger.debug("Sending cmd: %r", cmd.strip())
+        self.empty_socket()
         self._socket_send(cmd + "\n")
         resp = self._socket_recv()
         if cmd.strip() not in ("load-stats", "signal SIGTERM"):
